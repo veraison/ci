@@ -20,7 +20,9 @@
 #
 # All jobs use go-version, which is also the oldest Go version a go.mod may
 # require. The coverage job fails if any package reported by cover-command is
-# below min-coverage.
+# below min-coverage. The test and coverage jobs fail if a package with test
+# files, in any module of the project, did not run (see check-tests). Tests
+# that should not run by default belong behind a build tag.
 name: go
 
 on:
@@ -53,6 +55,10 @@ on:
       test-command:
         type: string
         default: "make test"
+      check-tests:
+        description: "Fail if a package with test files did not run in test-command or cover-command"
+        type: boolean
+        default: true
       golangci-lint-version:
         description: "golangci-lint version, bump it here to update all projects"
         type: string
@@ -140,7 +146,13 @@ jobs:
           TEST_COMMAND: ${{ inputs.test-command }}
         run: |
           go version
-          eval "${TEST_COMMAND}"
+          eval "${TEST_COMMAND}" 2>&1 | tee "${RUNNER_TEMP}/test.out"
+      - name: Check all tests ran
+        if: inputs.check-tests
+        uses: $/.github/actions/check-tests-ran
+        with:
+          output: ${{ runner.temp }}/test.out
+          working-directory: ${{ inputs.working-directory }}
 
   lint:
     name: lint
@@ -215,6 +227,12 @@ jobs:
         run: |
           go version
           eval "${COVER_COMMAND}" 2>&1 | tee "${RUNNER_TEMP}/cover.out"
+      - name: Check all tests ran
+        if: inputs.check-tests
+        uses: $/.github/actions/check-tests-ran
+        with:
+          output: ${{ runner.temp }}/cover.out
+          working-directory: ${{ inputs.working-directory }}
       - name: Check minimum coverage
         if: inputs.check-coverage
         env:

@@ -1,0 +1,23 @@
+name: Check all Go tests ran
+description: >-
+  Fails if a Go package with test files, in any module below the working
+  directory, did not run in the output of the test command.
+inputs:
+  output:
+    description: "File with the combined output of the test command"
+    required: true
+  working-directory:
+    description: "Project root containing the Go module(s)"
+    default: "."
+runs:
+  using: composite
+  steps:
+    - name: Check all Go tests ran
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        # this action is part of veraison/ci, at the same commit as the
+        # calling shared workflow
+        CI_ROOT: ${{ github.action_path }}/../../..
+        OUTPUT: ${{ inputs.output }}
+      run: python3 "${CI_ROOT}/scripts/check-tests-ran.py" "${OUTPUT}"
