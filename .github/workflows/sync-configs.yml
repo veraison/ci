@@ -9,16 +9,17 @@
 #   - repository secret CONFIG_SYNC_PRIVATE_KEY: a private key of the App
 name: sync-configs
 
+# disable for now
 on:
-  push:
-    branches: [main]
-    paths:
-      - configs/**
-      - scripts/sync-config.py
-      - scripts/sync-repos.sh
-  schedule:
-    # weekly, to pick up changed *.project.* files and new projects
-    - cron: "0 6 * * 1"
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - configs/**
+  #     - scripts/sync-config.py
+  #     - scripts/sync-repos.sh
+  # schedule:
+  #   # weekly, to pick up changed *.project.* files and new projects
+  #   - cron: "0 6 * * 1"
   workflow_dispatch:
     inputs:
       repos:
