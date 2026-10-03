@@ -1,0 +1,167 @@
+# Shared CI for Veraison Rust projects: rustfmt, clippy, build & test and
+# cargo-deny.
+#
+# Typical caller:
+#
+#   name: ci
+#   on:
+#     push:
+#       branches: ["**"]
+#     pull_request:
+#     workflow_dispatch:
+#   permissions:
+#     contents: read
+#   concurrency:
+#     group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+#     cancel-in-progress: ${{ github.ref_name != github.event.repository.default_branch }}
+#   jobs:
+#     rust:
+#       uses: veraison/ci/.github/workflows/rust.yml@main
+#
+# Lints are configured in Cargo.toml ([lints] / [workspace.lints]), so that
+# "cargo clippy" behaves the same locally and in CI.
+name: rust
+
+on:
+  workflow_call:
+    inputs:
+      jobs:
+        description: "Comma separated list of the jobs to run: lint, test, deny"
+        type: string
+        default: "lint,test,deny"
+      working-directory:
+        description: "Directory containing the Cargo workspace"
+        type: string
+        default: "."
+      toolchain:
+        description: "Rust toolchain used for all jobs"
+        type: string
+        default: "stable"
+      os:
+        description: "JSON list of runners to test on"
+        type: string
+        default: '["ubuntu-latest"]'
+      features:
+        description: "JSON list of cargo feature flags to build and test with"
+        type: string
+        default: '[""]'
+      setup:
+        description: "Shell commands run before the lint and test jobs (e.g. installing system packages)"
+        type: string
+        default: ""
+      timeout-minutes:
+        type: number
+        default: 30
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    name: lint
+    if: >-
+      contains(inputs.jobs, 'lint') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: ${{ inputs.toolchain }}
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ${{ inputs.working-directory }}
+      - name: Setup
+        if: inputs.setup != ''
+        env:
+          SETUP: ${{ inputs.setup }}
+        run: eval "${SETUP}"
+      - name: Formatting checks
+        run: cargo fmt --all -- --check
+      - name: Clippy checks
+        run: cargo clippy --all-targets
+
+  test:
+    name: test (${{ matrix.os }}${{ matrix.features != '' && format(', {0}', matrix.features) || '' }})
+    if: >-
+      contains(inputs.jobs, 'test') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.os) }}
+        features: ${{ fromJSON(inputs.features) }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: ${{ inputs.toolchain }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ${{ inputs.working-directory }}
+          key: ${{ matrix.features }}
+      - name: Setup
+        if: inputs.setup != ''
+        env:
+          SETUP: ${{ inputs.setup }}
+        run: eval "${SETUP}"
+      - name: Build
+        env:
+          FEATURES: ${{ matrix.features }}
+        run: |
+          read -ra features <<< "${FEATURES}"
+          cargo build --verbose "${features[@]}"
+      - name: Test
+        env:
+          FEATURES: ${{ matrix.features }}
+        run: |
+          read -ra features <<< "${FEATURES}"
+          cargo test --verbose "${features[@]}"
+
+  deny:
+    name: cargo-deny (${{ matrix.checks }})
+    if: >-
+      contains(inputs.jobs, 'deny') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        checks:
+          - advisories
+          - bans licenses sources
+    # Relax on security advisories for now
+    continue-on-error: ${{ matrix.checks == 'advisories' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check deny.toml is up to date
+        if: matrix.checks == 'advisories'
+        uses: $/.github/actions/check-config
+        with:
+          working-directory: ${{ inputs.working-directory }}
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check ${{ matrix.checks }}
+          manifest-path: ${{ inputs.working-directory }}/Cargo.toml

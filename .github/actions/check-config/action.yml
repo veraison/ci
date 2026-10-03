@@ -1,0 +1,24 @@
+name: Check shared configurations
+description: >-
+  Warns if the generated .golangci.yml or deny.toml of a project differ from
+  the common configuration in veraison/ci plus the project specific additions.
+inputs:
+  working-directory:
+    description: "Project root containing the generated files"
+    default: "."
+runs:
+  using: composite
+  steps:
+    - name: Check shared configurations
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        # this action is part of veraison/ci, at the same commit as the
+        # calling shared workflow
+        CI_ROOT: ${{ github.action_path }}/../../..
+      run: |
+        python3 -c 'import yaml, requests, tomlkit, deepmerge' 2>/dev/null ||
+          sudo apt-get install --yes --quiet python3-yaml python3-requests python3-tomlkit python3-deepmerge >/dev/null
+        if ! python3 "${CI_ROOT}/scripts/sync-config.py" --source "${CI_ROOT}/configs" --check; then
+          echo "::warning::The shared configurations are out of date. A sync PR from veraison/ci updates them; after changing a *.project.* file run: curl -fsSL https://raw.githubusercontent.com/veraison/ci/main/scripts/sync-config.py | python3 -"
+        fi
