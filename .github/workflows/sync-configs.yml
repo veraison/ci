@@ -1,0 +1,69 @@
+# Opens or updates a pull request in every Veraison project whose generated
+# .golangci.yml or deny.toml is out of date, e.g. after configs/ changed.
+#
+# Needs a GitHub App installed on the participating veraison repositories
+# (not "all repositories") with the
+# "Contents: read and write" and "Pull requests: read and write" permissions
+# (pull requests opened with the default GITHUB_TOKEN would not run CI):
+#   - repository variable CONFIG_SYNC_CLIENT_ID: the App's client ID
+#   - repository secret CONFIG_SYNC_PRIVATE_KEY: a private key of the App
+name: sync-configs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - configs/**
+      - scripts/sync-config.py
+      - scripts/sync-repos.sh
+  schedule:
+    # weekly, to pick up changed *.project.* files and new projects
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      repos:
+        description: "Space separated repositories to sync (default: all)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-configs
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.CONFIG_SYNC_CLIENT_ID }}
+          private-key: ${{ secrets.CONFIG_SYNC_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }} # zizmor: ignore[github-app]
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Configure git
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          APP_SLUG: ${{ steps.token.outputs.app-slug }}
+        run: |
+          gh auth setup-git
+          user_id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
+          git config --global user.name "${APP_SLUG}[bot]"
+          git config --global user.email "${user_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+      - name: Sync
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          REPOS: ${{ inputs.repos }}
+        run: |
+          python3 -c 'import yaml, requests, tomlkit, deepmerge' 2>/dev/null ||
+            sudo apt-get install --yes --quiet python3-yaml python3-requests python3-tomlkit python3-deepmerge >/dev/null
+          read -ra repos <<< "${REPOS}"
+          scripts/sync-repos.sh "${repos[@]}"

@@ -1,0 +1,67 @@
+# golangci-lint configuration shared by the Veraison Go projects.
+#
+# Each project's .golangci.yml is generated from this file plus the project's
+# optional .golangci.project.yml by scripts/sync-config.py; the sync-configs
+# workflow opens a PR in every project when this file changes.
+version: "2"
+
+linters:
+  # standard: errcheck, govet, ineffassign, staticcheck, unused
+  default: standard
+  enable:
+    - dupl
+    - goconst
+    - gocritic
+    - gocyclo
+    - gosec
+    - lll
+    - misspell
+    - prealloc
+    - unconvert
+  settings:
+    dupl:
+      threshold: 100
+    goconst:
+      min-len: 2
+      min-occurrences: 3
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+      disabled-checks:
+        - dupImport # https://github.com/go-critic/go-critic/issues/845
+        - hugeParam
+        - ifElseChain
+        - octalLiteral
+        - paramTypeCombine
+        - whyNoLint
+        - wrapperFunc
+    lll:
+      line-length: 140
+    misspell:
+      locale: US
+  exclusions:
+    presets:
+      - common-false-positives
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters:
+          - dupl
+          - goconst
+          - gosec
+          - lll
+
+formatters:
+  enable:
+    # also checks gofmt formatting
+    - goimports
+
+issues:
+  # report all issues, not only the first ones of each kind
+  max-issues-per-linter: 0
+  max-same-issues: 0
+

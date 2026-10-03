@@ -1,0 +1,37 @@
+# cargo-deny configuration shared by the Veraison Rust projects.
+#
+# Each project's deny.toml is generated from this file plus the project's
+# optional deny.project.toml by scripts/sync-config.py; the sync-configs
+# workflow opens a PR in every project when this file changes.
+
+[advisories]
+# report unmaintained crates only if they are direct dependencies
+unmaintained = "workspace"
+ignore = [
+]
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "BlueOak-1.0.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-git = [
+]
+
+[sources.allow-org]
+github = ["veraison"]

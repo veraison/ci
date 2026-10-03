@@ -1,0 +1,62 @@
+# Shared check for OpenAPI specifications using openapi-spec-validator.
+#
+#   name: OpenAPI
+#   on:
+#     push:
+#       branches: ["**"]
+#       paths: ["docs/api/**", ".github/workflows/openapi.yml"]
+#     pull_request:
+#       paths: ["docs/api/**", ".github/workflows/openapi.yml"]
+#     workflow_dispatch:
+#   permissions:
+#     contents: read
+#   concurrency:
+#     group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+#     cancel-in-progress: ${{ github.ref_name != github.event.repository.default_branch }}
+#   jobs:
+#     openapi:
+#       uses: veraison/ci/.github/workflows/openapi.yml@main
+#       with:
+#         specs: docs/api/foo.yaml
+name: openapi
+
+on:
+  workflow_call:
+    inputs:
+      specs:
+        description: "Whitespace separated OpenAPI spec files to validate"
+        type: string
+        required: true
+      validator-version:
+        description: "openapi-spec-validator version"
+        type: string
+        default: "0.9.0"
+      timeout-minutes:
+        type: number
+        default: 10
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: validate OpenAPI specs
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install openapi-spec-validator
+        env:
+          VERSION: ${{ inputs.validator-version }}
+        run: pipx install "openapi-spec-validator==${VERSION}"
+      - name: Validate
+        env:
+          SPECS: ${{ inputs.specs }}
+        run: |
+          for spec in ${SPECS}; do
+            echo ">>> ${spec}"
+            openapi-spec-validator "${spec}"
+          done

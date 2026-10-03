@@ -1,0 +1,266 @@
+# Shared CI for Veraison Go projects: build & test, golangci-lint and the
+# minimum test coverage check.
+#
+#   name: ci
+#   on:
+#     push:
+#       branches: ["**"]
+#     pull_request:
+#     workflow_dispatch:
+#   permissions:
+#     contents: read
+#   concurrency:
+#     group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+#     cancel-in-progress: ${{ github.ref_name != github.event.repository.default_branch }}
+#   jobs:
+#     go:
+#       uses: veraison/ci/.github/workflows/go.yml@main
+#       with:
+#         jobs: test
+#
+# All jobs use go-version, which is also the oldest Go version a go.mod may
+# require. The coverage job fails if any package reported by cover-command is
+# below min-coverage.
+name: go
+
+on:
+  workflow_call:
+    inputs:
+      jobs:
+        description: "Comma separated list of the jobs to run: test, lint, cover"
+        type: string
+        default: "test,lint,cover"
+      working-directory:
+        description: "Directory containing the Go module"
+        type: string
+        default: "."
+      go-version:
+        description: "Go version used by all jobs and the oldest go directive allowed in go.mod, bump it here to update all projects"
+        type: string
+        default: "1.26"
+      os:
+        description: "JSON list of runners to test on"
+        type: string
+        default: '["ubuntu-latest"]'
+      install-protoc:
+        description: "Install protoc before running setup"
+        type: boolean
+        default: false
+      setup:
+        description: "Shell commands run before every job (e.g. installing mockgen)"
+        type: string
+        default: ""
+      test-command:
+        type: string
+        default: "make test"
+      golangci-lint-version:
+        description: "golangci-lint version, bump it here to update all projects"
+        type: string
+        default: "v2.14"
+      cover-command:
+        description: "Command printing `go test -cover` output"
+        type: string
+        default: "make test-cover"
+      check-coverage:
+        description: "Fail if a package reported by cover-command is below the minimum coverage"
+        type: boolean
+        default: true
+      min-coverage:
+        description: "Minimum coverage of every package in percent, required by the cover job unless check-coverage is false"
+        type: string
+        default: ""
+      codecov:
+        description: "Upload the coverage profile(s) written by cover-command to codecov.io"
+        type: boolean
+        default: false
+      codecov-files:
+        description: "Comma separated coverage profiles to upload, relative to the repository root"
+        type: string
+        default: "coverage.txt"
+      timeout-minutes:
+        type: number
+        default: 30
+    secrets:
+      CODECOV_TOKEN:
+        description: "codecov.io upload token, only needed with codecov: true"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    if: >-
+      contains(inputs.jobs, 'test') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.os) }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ inputs.go-version }}
+          cache-dependency-path: "**/go.sum"
+      - name: Check minimum Go version
+        if: runner.os == 'Linux'
+        env:
+          MIN_GO_VERSION: ${{ inputs.go-version }}
+        run: |
+          failed=0
+          while read -r mod; do
+            version=$(go mod edit -json "${mod}" | jq -r .Go)
+            if [ "$(printf '%s\n%s\n' "${MIN_GO_VERSION}" "${version}" | sort -V | head -n1)" != "${MIN_GO_VERSION}" ]; then
+              echo "::error file=${mod}::go ${version} is older than the required go ${MIN_GO_VERSION}"
+              failed=1
+            fi
+          done < <(find . -name go.mod -not -path '*/vendor/*')
+          exit "${failed}"
+      - if: inputs.install-protoc
+        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: protoc
+      - name: Setup
+        if: inputs.setup != ''
+        env:
+          SETUP: ${{ inputs.setup }}
+        run: eval "${SETUP}"
+      - name: Test
+        env:
+          TEST_COMMAND: ${{ inputs.test-command }}
+        run: |
+          go version
+          eval "${TEST_COMMAND}"
+
+  lint:
+    name: lint
+    if: >-
+      contains(inputs.jobs, 'lint') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ inputs.go-version }}
+          cache-dependency-path: "**/go.sum"
+      - if: inputs.install-protoc
+        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: protoc
+      - name: Setup
+        if: inputs.setup != ''
+        env:
+          SETUP: ${{ inputs.setup }}
+        run: eval "${SETUP}"
+      - name: Check .golangci.yml is up to date
+        uses: $/.github/actions/check-config
+        with:
+          working-directory: ${{ inputs.working-directory }}
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: ${{ inputs.golangci-lint-version }}
+          working-directory: ${{ inputs.working-directory }}
+
+  # port from the go-cose
+  cover:
+    name: coverage
+    if: >-
+      contains(inputs.jobs, 'cover') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ inputs.go-version }}
+          cache-dependency-path: "**/go.sum"
+      - if: inputs.install-protoc
+        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: protoc
+      - name: Setup
+        if: inputs.setup != ''
+        env:
+          SETUP: ${{ inputs.setup }}
+        run: eval "${SETUP}"
+      - name: Coverage
+        env:
+          COVER_COMMAND: ${{ inputs.cover-command }}
+        run: |
+          go version
+          eval "${COVER_COMMAND}" 2>&1 | tee "${RUNNER_TEMP}/cover.out"
+      - name: Check minimum coverage
+        if: inputs.check-coverage
+        env:
+          MIN_COVERAGE: ${{ inputs.min-coverage }}
+        shell: python3 {0}
+        run: |
+          import os, re, sys
+
+          if not os.environ["MIN_COVERAGE"]:
+              print("::error::min-coverage must be set (or check-coverage set to false)")
+              sys.exit(2)
+          min_cover = float(os.environ["MIN_COVERAGE"])
+
+          cover_re = re.compile(r"coverage: (?P<pc>[\d.]+)% of statements")
+          package_re = re.compile(r"^\s*(?:ok\s+)?(?P<package>[^\s:]+)\s")
+          results = []
+          with open(os.path.join(os.environ["RUNNER_TEMP"], "cover.out")) as f:
+              for line in f:
+                  m = cover_re.search(line)
+                  if m is None:
+                      continue
+                  p = package_re.match(line)
+                  package = p.group("package") if p else "(unknown)"
+                  results.append((package, float(m.group("pc")), min_cover))
+
+          if not results:
+              print("::error::no coverage figures found in the output of the coverage command")
+              sys.exit(2)
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write("| package | coverage | minimum |\n|---|---:|---:|\n")
+              failed = False
+              for package, cover, threshold in results:
+                  ok = cover >= threshold
+                  failed |= not ok
+                  summary.write(f"| {package} | {cover:.1f}% {'' if ok else '❌'} | {threshold:.1f}% |\n")
+                  if not ok:
+                      print(f"::error::{package}: coverage {cover:.1f}% is below the minimum of {threshold:.1f}%")
+
+          sys.exit(1 if failed else 0)
+      - name: Upload coverage to codecov.io
+        # also upload when the minimum coverage check failed
+        if: ${{ !cancelled() && inputs.codecov }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: ${{ inputs.codecov-files }}
+          token: ${{ secrets.CODECOV_TOKEN }}
+          # an outage of codecov.io must not break CI
+          fail_ci_if_error: false
