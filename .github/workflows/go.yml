@@ -63,6 +63,10 @@ on:
         description: "golangci-lint version, bump it here to update all projects"
         type: string
         default: "v2.14"
+      # Most repositories can just use the GitHub action directly
+      lint-command:
+        type: string
+        default: ""
       cover-command:
         description: "Command printing `go test -cover` output"
         type: string
@@ -191,6 +195,14 @@ jobs:
         with:
           version: ${{ inputs.golangci-lint-version }}
           working-directory: ${{ inputs.working-directory }}
+          install-only: ${{ inputs.lint-command != '' }}
+      - name: Custom lint
+        if: inputs.lint-command != ''
+        env:
+          LINT_COMMAND: ${{ inputs.lint-command }}
+        run: |
+          go version
+          eval "${LINT_COMMAND}" 2>&1
 
   # port from the go-cose
   cover:
