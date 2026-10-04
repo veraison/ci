@@ -40,8 +40,6 @@ linters:
         - wrapperFunc
     lll:
       line-length: 140
-    misspell:
-      locale: US
   exclusions:
     presets:
       - common-false-positives
