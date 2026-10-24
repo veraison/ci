@@ -8,6 +8,7 @@ the optional project specific additions of the project:
 
     .golangci.yml  <- configs/.golangci.yml + .golangci.project.yml (per repo)
     deny.toml      <- configs/deny.toml     + deny.project.toml (per repo)
+    mk/lint.mk     <- configs/mk/lint.mk
 """
 
 import argparse
@@ -28,6 +29,7 @@ SCRIPT_URL = "https://raw.githubusercontent.com/veraison/ci/main/scripts/sync-co
 CONFIGS = [
     (".golangci.yml", ".golangci.project.yml"),
     ("deny.toml", "deny.project.toml"),
+    ("mk/lint.mk", None),
 ]
 
 # Register parsers (yml, toml)
@@ -77,6 +79,8 @@ def read_source(source, name):
 
 
 def generate(source, target, project):
+    if project is None:
+        return read_source(source, target)
     parse, serialize = format_of(target)
     data = parse(read_source(source, target))
     additions = Path(project)
@@ -97,7 +101,7 @@ def main():
     outdated = []
     for name, project in CONFIGS:
         target = Path(name)
-        if not (target.is_file() or Path(project).is_file()):
+        if not (target.is_file() or (project and Path(project).is_file())):
             continue
         content = generate(args.source, name, project)
         if target.is_file() and target.read_text() == content:

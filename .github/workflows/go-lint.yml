@@ -1,0 +1,57 @@
+name: go-lint
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "Directory containing the Go module"
+        type: string
+        default: "."
+      install-protoc:
+        description: "Install protoc before running setup"
+        type: boolean
+        default: false
+      setup:
+        description: "Shell commands run before linting (e.g. installing mockgen)"
+        type: string
+        default: ""
+      timeout-minutes:
+        type: number
+        default: 30
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ inputs.working-directory }}/go.mod
+          cache-dependency-path: "**/go.sum"
+      - if: inputs.install-protoc
+        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: protoc
+      - name: Setup
+        if: inputs.setup != ''
+        env:
+          SETUP: ${{ inputs.setup }}
+        run: eval "${SETUP}"
+      - name: Check .golangci.yml and mk/lint.mk are up to date
+        uses: $/.github/actions/check-config
+        with:
+          working-directory: ${{ inputs.working-directory }}
+      - name: Lint
+        run: make lint

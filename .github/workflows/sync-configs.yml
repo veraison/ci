@@ -1,5 +1,5 @@
 # Opens or updates a pull request in every Veraison project whose generated
-# .golangci.yml or deny.toml is out of date, e.g. after configs/ changed.
+# configurations are out of date, e.g. after configs/ changed.
 #
 # Needs a GitHub App installed on the participating veraison repositories
 # (not "all repositories") with the
