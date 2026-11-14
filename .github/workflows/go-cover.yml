@@ -7,6 +7,10 @@ on:
         description: "Directory containing the Go module"
         type: string
         default: "."
+      go-version:
+        description: "Go version used for coverage, defaults to the go directive in go.mod"
+        type: string
+        default: ""
       install-protoc:
         description: "Install protoc before running setup"
         type: boolean
@@ -66,7 +70,8 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: ${{ inputs.working-directory }}/go.mod
+          go-version: ${{ inputs.go-version }}
+          go-version-file: ${{ inputs.go-version == '' && format('{0}/go.mod', inputs.working-directory) || '' }}
           cache-dependency-path: "**/go.sum"
       - if: inputs.install-protoc
         uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2.88.1
